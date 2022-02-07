@@ -1,0 +1,134 @@
+---
+title: "GRN Reconstruction"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+```
+
+
+```{r}
+transcripts <- read.table(#path to file , header = FALSE, col.names = c('chromosome', 'start', 'end', 'geneid', 'transcriptid', 'strand'))
+```
+
+
+```{r}
+head(transcripts)
+nrow(transcripts)
+```
+```{r}
+# finding TSS of each gene with respect to chromosome strand
+
+posTrans <- transcripts[transcripts$strand == '+', ]
+posTrans <- select(posTrans, -end)
+posTrans <- rename(posTrans, 'TSS' = 'start')
+head(posTrans)
+negTrans <- transcripts[transcripts$strand == '-', ]
+negTrans <- select(negTrans, -start)
+negTrans <- rename(negTrans, 'TSS' = 'end')
+head(negTrans)
+```
+```{r}
+# verifying all data are in the tables (106332 rows)
+
+nrow(posTrans) + nrow(negTrans)
+```
+```{r}
+peaks <- read.table(#path to file , header = FALSE, col.names = c('chromosome', 'p_start', 'p_end'))
+peaks
+nrow(peaks)
+```
+```{r}
+posTrans <- mutate(posTrans, R_100KB = TSS+100000, L_100KB = TSS-100000)
+posTrans
+```
+```{r}
+negTrans <- mutate(negTrans, R_100KB = TSS+100000, L_100KB = TSS-100000)
+negTrans
+```
+```{r}
+posTrans <- mutate(posTrans, numpeaks = as.double(NA), peaks = NA)
+posTrans[,"peaks"] <- as.complex(posTrans[,"peaks"])
+negTrans <- mutate(negTrans, numpeaks = as.double(NA), peaks = NA)
+negTrans[,"peaks"] <- as.complex(negTrans[,"peaks"])
+peaks <- mutate(peaks, peak_id = 1:122401)
+```
+
+```{r}
+# identify the number of peaks for each gene
+# peaks column represents the peak_id from the peaks table
+
+for (i in 1:53592) {
+  inpos <- filter(peaks, p_start < posTrans[i,"R_100KB"] & 
+                  p_end > posTrans[i,"L_100KB"] & chromosome == posTrans[i,"chromosome"])
+  posTrans[i,"numpeaks"] <- nrow(inpos)
+  posTrans[i,"peaks"] <- toString(inpos[,"peak_id"])
+}
+posTrans
+
+for (i in 1:52740) {
+  inneg <- filter(peaks, p_start < negTrans[i,"R_100KB"] & 
+                  p_end > negTrans[i,"L_100KB"] & chromosome == negTrans[i,"chromosome"])
+  negTrans[i,"numpeaks"] <- nrow(inneg)
+  negTrans[i,"peaks"] <- toString(inneg[,"peak_id"])
+}
+negTrans
+```
+```{r}
+# combining posTrans and negTrans
+# extracting geneid and number of peaks to a separate table (ppg - peaks per gene)
+# extracting geneid and peaks to a separate table (pbg - peaks belonging to gene)
+
+Trans <- bind_rows(posTrans, negTrans)
+Trans
+
+ppg <- select(Trans, 'geneid', 'numpeaks')
+ppg
+
+pbg <- select(Trans, 'geneid', 'peaks')
+pbg
+```
+
+
+```{r}
+# saving tables as .bed files
+
+write.table(Trans, file="modified_trans.bed")
+write.table(ppg, file="peaks_p_gene.bed")
+write.table(pbg, file="peaks_reg_region.bed")
+
+```
+
+```{r}
+ppg <- read.table("peaks_p_gene.bed")
+ppg
+```
+```{r}
+png(filename = "Histogram.png", width=600, height=350, type = "cairo")
+hist(ppg$numpeaks, main = "Distribution of Putative Enhancers", xlab = "Number of Peaks", breaks = 50)
+dev.off()
+```
+```{r}
+# files must be in the same directory
+files <- list.files(path = #path to file , pattern = "*.narrowPeak" ,full.names = TRUE)
+files
+```
+
+
+```{r}
+k = 2
+for (i in files) {
+  sample <- read.table(i, header = FALSE, col.names = c('chromosome', 'p_start', 'p_end', 'peak_name', 'V5', 'V6', 'V7', 'V8', 'V9', 'V10'))
+  sample <- mutate(sample, peak_length = p_end - p_start)
+  k = k + 1
+  temp <- c("A", k, "Histogram.png")
+  figure <- paste(temp, collapse = "_")
+  png(filename = figure, width=600, height=350, type = "cairo")
+  hist(sample$peak_length, main = "Distribution of Peak Size", xlab = "Peak Size", 
+       xlim = c(0,20000) ,breaks = 150)
+  dev.off()
+}
+```
